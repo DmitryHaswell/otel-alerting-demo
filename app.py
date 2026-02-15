@@ -1,10 +1,17 @@
 import time
+import random
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# --- Manual Metrics Registry ---
-# As an SRE, think of this as your in-memory TSDB
+# CONFIGURATION
+CHAOS_CONFIG = {
+    "error_rate": 0.25,      # 25% of requests will fail with a 500
+    "slow_rate": 0.15,       # 15% of requests will be slow
+    "slow_delay_sec": 2.0    # How long 'slow' requests take
+}
+
+# --- Manual metrics storage ---
 metrics_db = {
     "requests_total": 0,    # Rate
     "errors_total": 0,      # Errors
@@ -13,7 +20,6 @@ metrics_db = {
 
 @app.before_request
 def start_timer():
-    # Store the start time on the 'request' object (thread-local in Flask)
     request.start_time = time.time()
 
 @app.after_request
@@ -35,24 +41,19 @@ def record_metrics(response):
 
 @app.route("/")
 def hello():
-    return "The app just did something."
+    # --- Chaos Logic ---
+    # 1. Simulate Latency
+    if random.random() < CHAOS_CONFIG["slow_rate"]:
+        time.sleep(CHAOS_CONFIG["slow_delay_sec"])
 
-@app.route("/error")
-def trigger_error():
-    # Simulate a server failure
-    return "Something went wrong!", 500
-
-@app.route("/slow")
-def slow_request():
-    # Simulate latency
-    time.sleep(0.5)
-    return "This took quite a while!"
+    # 2. Simulate Errors
+    if random.random() < CHAOS_CONFIG["error_rate"]:
+        return "Internal Server Error", 500
+    
+    return "Hello, world!"
 
 @app.route("/metrics")
 def get_metrics():
-    """
-    Reporting endpoint
-    """
     count = metrics_db["requests_total"]
     avg_latency = (sum(metrics_db["durations"]) / count) if count > 0 else 0
     
@@ -66,10 +67,9 @@ def get_metrics():
             "error_rate_percent": (metrics_db["errors_total"] / count * 100) if count > 0 else 0
         },
         "duration": {
-            "avg_latency_seconds": round(avg_latency, 4),
-            "last_latency_seconds": round(metrics_db["durations"][-1], 4) if metrics_db["durations"] else 0
+            "avg_latency_seconds": round(avg_latency, 4)
         }
     })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    app.run(host="0.0.0.0", port=8000)
